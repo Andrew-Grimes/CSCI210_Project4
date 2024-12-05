@@ -25,33 +25,26 @@ int main() {
     signal(SIGPIPE, SIG_IGN);
     signal(SIGINT, terminate);
 
-    // Remove existing server FIFO to prevent stale FIFOs
-    unlink("serverFIFO");
 
-    // Create server FIFO
-    if (mkfifo("serverFIFO", 0666) < 0) {
-        perror("Can't create server FIFO");
-        exit(EXIT_FAILURE);
-    }
 
     // Open server FIFO for reading
     server = open("serverFIFO", O_RDONLY);
-    if (server < 0) {
-        perror("Can't open server FIFO");
-        exit(EXIT_FAILURE);
-    }
+    //if (server < 0) {
+        //perror("Can't open server FIFO");
+      //  exit(EXIT_FAILURE);
+    //}
 
     // Dummy FD to keep FIFO open
     dummyfd = open("serverFIFO", O_WRONLY);
-    if (dummyfd < 0) {
-        perror("Can't open dummy FD");
-        close(server);
-        exit(EXIT_FAILURE);
-    }
+    //if (dummyfd < 0) {
+      //  perror("Can't open dummy FD");
+      //  close(server);
+       // exit(EXIT_FAILURE);
+   // }
 
     while (1) {
         // Read a message from server FIFO
-        ssize_t bytes_read = read(server, &req, sizeof(req));
+        ssize_t bytes_read = read(server, &req, sizeof(struct message));
         if (bytes_read <= 0) continue;
 
         printf("Received a request from %s to send the message %s to %s.\n",
@@ -59,14 +52,14 @@ int main() {
 
         // Open target's FIFO to forward message
         target = open(req.target, O_WRONLY);
-        if (target < 0) {
-            perror("Can't open target FIFO");
+        if (target == -1) {
+            printf("Can't open target FIFO");
             continue;
         }
 
         // Write message to target FIFO
         if (write(target, &req, sizeof(req)) < 0) {
-            perror("Can't write to target FIFO");
+            printf("Can't write to target FIFO");
         }
 
         close(target);
@@ -75,6 +68,6 @@ int main() {
     // Cleanup (though this code is unreachable due to infinite loop)
     close(server);
     close(dummyfd);
-    unlink("serverFIFO");
+
     return 0;
 }
