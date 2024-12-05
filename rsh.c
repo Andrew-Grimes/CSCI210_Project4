@@ -6,39 +6,30 @@
 #include <string.h>
 #include <fcntl.h>
 #include <pthread.h>
-#include <signal.h>
-#include <sys/stat.h>
 
 #define N 13
 
 extern char **environ;
-char uName[50];
+char uName[20];
 
-char *allowed[N] = {"cp", "touch", "mkdir", "ls", "pwd", "cat", "grep", "chmod",
-                    "diff", "cd", "exit", "help", "sendmsg"};
+char *allowed[N] = {"cp", "touch", "mkdir", "ls", "pwd", "cat", "grep", "chmod", "diff", "cd", "exit", "help", "sendmsg"};
 
 struct message {
     char source[50];
-    char target[50];
+    char target[50]; 
     char msg[200];
 };
 
-volatile int running = 1;
-
 void terminate(int sig) {
-    unlink(uName);
+    printf("Exiting....\n");
+    fflush(stdout);
     exit(0);
 }
 
-int isAllowed(char *cmd) {
-    for (int i = 0; i < N; i++) {
-        if (strcmp(cmd, allowed[i]) == 0)
-            return 1;
-    }
-    return 0;
-}
-
 void sendmsg(char *user, char *target, char *msg) {
+    // TODO:
+    // Send a request to the server to send the message (msg) to the target user (target)
+    // by creating the message structure and writing it to server's FIFO
     struct message req;
     int server_fd;
 
@@ -60,8 +51,15 @@ void sendmsg(char *user, char *target, char *msg) {
 }
 
 void* messageListener(void *arg) {
-    struct message incoming_msg;
+    // TODO:
+    // Read user's own FIFO in an infinite loop for incoming messages
+    // The logic is similar to a server listening to requests
+    // print the incoming message to the standard output in the
+    // following format
+    // Incoming message from [source]: [message]
+    // put an end of line at the end of the message
     int user_fifo_fd;
+    struct message incoming_msg;
 
     user_fifo_fd = open(uName, O_RDONLY);
     if (user_fifo_fd < 0) {
@@ -69,44 +67,65 @@ void* messageListener(void *arg) {
         pthread_exit(NULL);
     }
 
-    while (running) {
-        ssize_t bytes_read = read(user_fifo_fd, &incoming_msg, sizeof(incoming_msg));
+    while (1) {
+        ssize_t bytes_read = read(user_fifo_fd, &incoming_msg, sizeof(struct message));
         if (bytes_read > 0) {
             printf("Incoming message from %s: %s\n", incoming_msg.source, incoming_msg.msg);
             fflush(stdout);
-            fprintf(stderr, "rsh> ");
-            fflush(stderr);
-        } else if (bytes_read == -1) {
-            perror("Error reading from FIFO");
+        } else if (bytes_read == 0) {
+            // Reopen the FIFO if EOF is reached
+            close(user_fifo_fd);
+            user_fifo_fd = open(uName, O_RDONLY);
+            if (user_fifo_fd < 0) {
+                perror("Can't reopen user FIFO");
+                pthread_exit(NULL);
+            }
         } else {
-            usleep(100000);
+            perror("Error reading from FIFO");
         }
     }
 
     close(user_fifo_fd);
-    pthread_exit(NULL);
+    pthread_exit((void*)0);
+}
+
+int isAllowed(const char* cmd) {
+    int i;
+    for (i = 0; i < N; i++) {
+        if (strcmp(cmd, allowed[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 int main(int argc, char **argv) {
-    pthread_t listener_thread;
+    pid_t pid;
+    char **cargv; 
+    char *path;
     char line[256];
+    int status;
+    posix_spawnattr_t attr;
 
     if (argc != 2) {
         printf("Usage: ./rsh <username>\n");
         exit(1);
     }
-
     signal(SIGINT, terminate);
 
-    strncpy(uName, argv[1], sizeof(uName) - 1);
-    uName[sizeof(uName) - 1] = '\0';
+    strcpy(uName, argv[1]);
 
+    // TODO:
+    // create the message listener thread
+    // Create the user's FIFO
     unlink(uName);
     if (mkfifo(uName, 0666) < 0) {
         perror("Can't create user FIFO");
         exit(1);
     }
 
+    // Create the message listener thread
+    pthread_t listener_thread;
     if (pthread_create(&listener_thread, NULL, messageListener, NULL) != 0) {
         perror("Can't create listener thread");
         unlink(uName);
@@ -114,22 +133,44 @@ int main(int argc, char **argv) {
     }
 
     while (1) {
-        fprintf(stderr, "rsh> ");
-        fflush(stderr);
-        if (fgets(line, sizeof(line), stdin) == NULL) continue;
 
-        line[strcspn(line, "\n")] = '\0';
-        if (strlen(line) == 0) continue;
+        fprintf(stderr, "rsh>");
 
-        char *cmd = strtok(line, " ");
+        if (fgets(line, 256, stdin) == NULL) continue;
+
+        if (strcmp(line, "\n") == 0) continue;
+
+        line[strlen(line) - 1] = '\0';
+
+        char cmd[256];
+        char line2[256];
+        strcpy(line2, line);
+        strcpy(cmd, strtok(line, " "));
+
         if (!isAllowed(cmd)) {
             printf("NOT ALLOWED!\n");
             continue;
         }
 
         if (strcmp(cmd, "sendmsg") == 0) {
+            // TODO: Create the target user and
+            // the message string and call the sendmsg function
+
+            // NOTE: The message itself can contain spaces
+            // If the user types: "sendmsg user1 hello there"
+            // target should be "user1" 
+            // and the message should be "hello there"
+
+            // if no argument is specified, you should print the following
+            // printf("sendmsg: you have to specify target user\n");
+            // if no message is specified, you should print the following
+            // printf("sendmsg: you have to enter a message\n");
+
+            // Parse target and message
+            char *token = strtok(line2, " "); // skip "sendmsg"
             char *target = strtok(NULL, " ");
             char *msg = strtok(NULL, "");
+
             if (!target) {
                 printf("sendmsg: you have to specify target user\n");
             } else if (!msg) {
@@ -140,20 +181,14 @@ int main(int argc, char **argv) {
             continue;
         }
 
-        if (strcmp(cmd, "exit") == 0) {
-            break;
-        }
+        if (strcmp(cmd, "exit") == 0) break;
 
         if (strcmp(cmd, "cd") == 0) {
             char *targetDir = strtok(NULL, " ");
             if (strtok(NULL, " ") != NULL) {
                 printf("-rsh: cd: too many arguments\n");
-            } else if (targetDir == NULL) {
-                printf("-rsh: cd: missing argument\n");
             } else {
-                if (chdir(targetDir) != 0) {
-                    perror("cd failed");
-                }
+                chdir(targetDir);
             }
             continue;
         }
@@ -166,27 +201,49 @@ int main(int argc, char **argv) {
             continue;
         }
 
-        char *args[20];
-        int i = 0;
-        args[i++] = cmd;
-        char *token;
-        while ((token = strtok(NULL, " ")) != NULL && i < 19) {
-            args[i++] = token;
-        }
-        args[i] = NULL;
+        cargv = (char**)malloc(sizeof(char*));
+        cargv[0] = (char *)malloc(strlen(cmd) + 1);
+        path = (char *)malloc(9 + strlen(cmd) + 1);
+        strcpy(path, cmd);
+        strcpy(cargv[0], cmd);
 
-        pid_t pid;
-        int status;
-        if (posix_spawnp(&pid, cmd, NULL, NULL, args, environ) == 0) {
-            waitpid(pid, &status, 0);
-        } else {
-            perror("Failed to execute command");
+        char *attrToken = strtok(line2, " "); /* skip cargv[0] which is completed already */
+        attrToken = strtok(NULL, " ");
+        int n = 1;
+        while (attrToken != NULL) {
+            n++;
+            cargv = (char**)realloc(cargv, sizeof(char*) * n);
+            cargv[n - 1] = (char *)malloc(strlen(attrToken) + 1);
+            strcpy(cargv[n - 1], attrToken);
+            attrToken = strtok(NULL, " ");
         }
+        cargv = (char**)realloc(cargv, sizeof(char*) * (n + 1));
+        cargv[n] = NULL;
+
+        // Initialize spawn attributes
+        posix_spawnattr_init(&attr);
+
+        // Spawn a new process
+        if (posix_spawnp(&pid, path, NULL, &attr, cargv, environ) != 0) {
+            perror("spawn failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Wait for the spawned process to terminate
+        if (waitpid(pid, &status, 0) == -1) {
+            perror("waitpid failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Destroy spawn attributes
+        posix_spawnattr_destroy(&attr);
+
     }
 
-    running = 0;
+    // Cleanup
+    pthread_cancel(listener_thread);
     pthread_join(listener_thread, NULL);
     unlink(uName);
-    printf("Exiting....\n");
+
     return 0;
 }
