@@ -13,9 +13,6 @@ struct message {
 };
 
 void terminate(int sig) {
-    printf("Exiting....\n");
-    fflush(stdout);
-    // Remove the server FIFO when exiting
     unlink("serverFIFO");
     exit(0);
 }
@@ -54,24 +51,34 @@ int main() {
     while (1) {
         // Read a message from server FIFO
         ssize_t bytes_read = read(server, &req, sizeof(req));
-        if (bytes_read <= 0) continue;
+        if (bytes_read > 0) {
+            printf("Received a request from %s to send the message %s to %s.\n",
+                   req.source, req.msg, req.target);
 
-        printf("Received a request from %s to send the message %s to %s.\n",
-               req.source, req.msg, req.target);
+            // Open target's FIFO to forward message
+            target = open(req.target, O_WRONLY);
+            if (target < 0) {
+                perror("Can't open target FIFO");
+                continue;
+            }
 
-        // Open target's FIFO to forward message
-        target = open(req.target, O_WRONLY);
-        if (target < 0) {
-            perror("Can't open target FIFO");
-            continue;
+            // Write message to target FIFO
+            if (write(target, &req, sizeof(req)) < 0) {
+                perror("Can't write to target FIFO");
+            }
+
+            close(target);
+        } else if (bytes_read == 0) {
+            // EOF, re-open the server FIFO
+            close(server);
+            server = open("serverFIFO", O_RDONLY);
+            if (server < 0) {
+                perror("Can't reopen server FIFO");
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            perror("Error reading from server FIFO");
         }
-
-        // Write message to target FIFO
-        if (write(target, &req, sizeof(req)) < 0) {
-            perror("Can't write to target FIFO");
-        }
-
-        close(target);
     }
 
     // Cleanup (though this code is unreachable due to infinite loop)

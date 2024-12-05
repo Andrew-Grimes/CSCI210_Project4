@@ -23,9 +23,9 @@ struct message {
     char msg[200];
 };
 
+volatile int running = 1;
+
 void terminate(int sig) {
-    printf("Exiting....\n");
-    fflush(stdout);
     unlink(uName);
     exit(0);
 }
@@ -70,7 +70,7 @@ void* messageListener(void *arg) {
         pthread_exit(NULL);
     }
 
-    while (1) {
+    while (running) {
         ssize_t bytes_read = read(user_fifo_fd, &incoming_msg, sizeof(incoming_msg));
         if (bytes_read > 0) {
             printf("Incoming message from %s: %s\n", incoming_msg.source, incoming_msg.msg);
@@ -120,7 +120,8 @@ int main(int argc, char **argv) {
     }
 
     while (1) {
-        fprintf(stderr, "rsh> ");
+        printf("rsh>");
+        fflush(stdout);
         if (fgets(line, sizeof(line), stdin) == NULL) continue;
 
         line[strcspn(line, "\n")] = '\0';  // Remove newline character
@@ -128,7 +129,7 @@ int main(int argc, char **argv) {
 
         char *cmd = strtok(line, " ");
         if (!isAllowed(cmd)) {
-            printf("Not allowed!\n");
+            printf("NOT ALLOWED!\n");
             continue;
         }
 
@@ -136,9 +137,9 @@ int main(int argc, char **argv) {
             char *target = strtok(NULL, " ");
             char *msg = strtok(NULL, "");
             if (!target) {
-                printf("sendmsg: specify target user\n");
+                printf("sendmsg: you have to specify target user\n");
             } else if (!msg) {
-                printf("sendmsg: enter a message\n");
+                printf("sendmsg: you have to enter a message\n");
             } else {
                 sendmsg(uName, target, msg);
             }
@@ -147,6 +148,24 @@ int main(int argc, char **argv) {
 
         if (strcmp(cmd, "exit") == 0) {
             break;
+        }
+
+        if (strcmp(cmd, "cd") == 0) {
+            char *targetDir = strtok(NULL, " ");
+            if (strtok(NULL, " ") != NULL) {
+                printf("-rsh: cd: too many arguments\n");
+            } else {
+                chdir(targetDir);
+            }
+            continue;
+        }
+
+        if (strcmp(cmd, "help") == 0) {
+            printf("The allowed commands are:\n");
+            for (int i = 0; i < N; i++) {
+                printf("%d: %s\n", i + 1, allowed[i]);
+            }
+            continue;
         }
 
         // Handle other allowed commands
@@ -161,13 +180,14 @@ int main(int argc, char **argv) {
 
         pid_t pid;
         int status;
-        if (posix_spawn(&pid, cmd, NULL, NULL, args, environ) == 0) {
+        if (posix_spawnp(&pid, cmd, NULL, NULL, args, environ) == 0) {
             waitpid(pid, &status, 0);
         } else {
             perror("Failed to execute command");
         }
     }
 
+    running = 0;
     pthread_cancel(listener_thread);
     pthread_join(listener_thread, NULL);
     unlink(uName);
