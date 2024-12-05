@@ -7,66 +7,66 @@
 
 #define SERVER_FIFO "serverFIFO"
 
-struct message {
-    char source[50];
-    char target[50];
-    char msg[200]; 
-};
+typedef struct {
+    char sender[50];
+    char recipient[50];
+    char content[200];
+} Message;
 
-void terminate(int sig) {
+void terminate(int signal) {
     printf("Exiting....\n");
     fflush(stdout);
     exit(0);
 }
 
 int main() {
-    int server, dummy;
-    struct message req;
-    setvbuf(stdout, NULL, _IONBF, 0);
+    int server_fd, placeholder_fd;
+    Message msg;
+
     signal(SIGPIPE, SIG_IGN);
     signal(SIGINT, terminate);
 
-    server = open(SERVER_FIFO, O_RDONLY);
-    if (server < 0) {
-        perror("Can't create server FIFO");
+    server_fd = open(SERVER_FIFO, O_RDONLY);
+    if (server_fd == -1) {
+        perror("Unable to open server FIFO");
         exit(1);
     }
 
-    dummy = open(SERVER_FIFO, O_WRONLY);
-    if (dummy < 0) {
-        perror("Can't open dummy FD");
-        close(server);
+    placeholder_fd = open(SERVER_FIFO, O_WRONLY);
+    if (placeholder_fd == -1) {
+        perror("Unable to open placeholder FD");
+        close(server_fd);
         exit(1);
     }
 
     while (1) {
-        ssize_t bytes_read = read(server, &req, sizeof(req));
-        if (bytes_read == sizeof(req)) {
-            if (strlen(req.source) == 0 || strlen(req.target) == 0 || strlen(req.msg) == 0) {
+        ssize_t bytes_read = read(server_fd, &msg, sizeof(Message));
+        if (bytes_read == sizeof(Message)) {
+            if (strlen(msg.sender) == 0 || strlen(msg.recipient) == 0 || strlen(msg.content) == 0) {
                 continue;
             }
 
             printf("Received a request from %s to send the message %s to %s.\n",
-                   req.source, req.msg, req.target);
+                   msg.sender, msg.content, msg.recipient);
 
-            int target = open(req.target, O_WRONLY);
-            if (target < 0) {
-                printf("Can't open target FIFO for %s.\n", req.target);
+            int recipient_fd = open(msg.recipient, O_WRONLY);
+            if (recipient_fd == -1) {
+                printf("Can't open target FIFO for %s.\n", msg.recipient);
                 continue;
             }
 
-            ssize_t bytes_written = write(target, &req, size(req));
-            if (bytes_written < 0) {
-                perror("Can't write to target FIFO");
+            ssize_t bytes_written = write(recipient_fd, &msg, sizeof(Message));
+            if (bytes_written == -1) {
+                perror("Failed to write to recipient FIFO");
             }
 
-            close(target);
-        } else if (bytes_read < 0) {
-            perror("Can't reopen server FIFO");
-            fflush(stdout);
+            close(recipient_fd);
+        } else if (bytes_read == -1) {
+            perror("Error reading from server FIFO");
         }
     }
-    close(server);
-    close(dummy);
+
+    close(server_fd);
+    close(placeholder_fd);
     return 0;
 }

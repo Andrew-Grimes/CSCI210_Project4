@@ -12,7 +12,7 @@
 #define N 13
 
 extern char **environ;
-char uName[20];
+char uName[50];
 
 char *allowed[N] = {"cp", "touch", "mkdir", "ls", "pwd", "cat", "grep", "chmod",
                     "diff", "cd", "exit", "help", "sendmsg"};
@@ -61,12 +61,18 @@ void sendmsg(char *user, char *target, char *msg) {
 
 void* messageListener(void *arg) {
     struct message incoming_msg;
-    int user_fifo_fd;
+    int user_fifo_fd, dummy_fd;
 
-    // Open the user FIFO once at the beginning
     user_fifo_fd = open(uName, O_RDONLY);
     if (user_fifo_fd < 0) {
         perror("Can't open user FIFO");
+        pthread_exit(NULL);
+    }
+
+    dummy_fd = open(uName, O_WRONLY);
+    if (dummy_fd < 0) {
+        perror("Can't open dummy write descriptor");
+        close(user_fifo_fd);
         pthread_exit(NULL);
     }
 
@@ -75,20 +81,15 @@ void* messageListener(void *arg) {
         if (bytes_read > 0) {
             printf("Incoming message from %s: %s\n", incoming_msg.source, incoming_msg.msg);
             fflush(stdout);
-        } else if (bytes_read == 0) {
-            // Writing end is closed, reopen FIFO
-            close(user_fifo_fd);
-            user_fifo_fd = open(uName, O_RDONLY);
-            if (user_fifo_fd < 0) {
-                perror("Can't reopen user FIFO");
-                pthread_exit(NULL);
-            }
-        } else {
+        } else if (bytes_read == -1) {
             perror("Error reading from FIFO");
+        } else {
+            usleep(100000);
         }
     }
 
     close(user_fifo_fd);
+    close(dummy_fd);
     pthread_exit(NULL);
 }
 
@@ -103,16 +104,15 @@ int main(int argc, char **argv) {
 
     signal(SIGINT, terminate);
 
-    strcpy(uName, argv[1]);
+    strncpy(uName, argv[1], sizeof(uName) - 1);
+    uName[sizeof(uName) - 1] = '\0';
 
-    // Remove any existing FIFO with the same name
     unlink(uName);
     if (mkfifo(uName, 0666) < 0) {
         perror("Can't create user FIFO");
         exit(1);
     }
 
-    // Create the message listener thread
     if (pthread_create(&listener_thread, NULL, messageListener, NULL) != 0) {
         perror("Can't create listener thread");
         unlink(uName);
@@ -124,7 +124,7 @@ int main(int argc, char **argv) {
         fflush(stdout);
         if (fgets(line, sizeof(line), stdin) == NULL) continue;
 
-        line[strcspn(line, "\n")] = '\0';  // Remove newline character
+        line[strcspn(line, "\n")] = '\0';
         if (strlen(line) == 0) continue;
 
         char *cmd = strtok(line, " ");
@@ -154,8 +154,12 @@ int main(int argc, char **argv) {
             char *targetDir = strtok(NULL, " ");
             if (strtok(NULL, " ") != NULL) {
                 printf("-rsh: cd: too many arguments\n");
+            } else if (targetDir == NULL) {
+                printf("-rsh: cd: missing argument\n");
             } else {
-                chdir(targetDir);
+                if (chdir(targetDir) != 0) {
+                    perror("cd failed");
+                }
             }
             continue;
         }
@@ -168,7 +172,6 @@ int main(int argc, char **argv) {
             continue;
         }
 
-        // Handle other allowed commands
         char *args[20];
         int i = 0;
         args[i++] = cmd;
@@ -188,7 +191,6 @@ int main(int argc, char **argv) {
     }
 
     running = 0;
-    pthread_cancel(listener_thread);
     pthread_join(listener_thread, NULL);
     unlink(uName);
     printf("Exiting....\n");
