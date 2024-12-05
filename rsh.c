@@ -61,18 +61,11 @@ void sendmsg(char *user, char *target, char *msg) {
 
 void* messageListener(void *arg) {
     struct message incoming_msg;
-    int user_fifo_fd, dummy_fd;
+    int user_fifo_fd;
 
     user_fifo_fd = open(uName, O_RDONLY);
     if (user_fifo_fd < 0) {
         perror("Can't open user FIFO");
-        pthread_exit(NULL);
-    }
-
-    dummy_fd = open(uName, O_WRONLY);
-    if (dummy_fd < 0) {
-        perror("Can't open dummy write descriptor");
-        close(user_fifo_fd);
         pthread_exit(NULL);
     }
 
@@ -81,6 +74,8 @@ void* messageListener(void *arg) {
         if (bytes_read > 0) {
             printf("Incoming message from %s: %s\n", incoming_msg.source, incoming_msg.msg);
             fflush(stdout);
+            fprintf(stderr, "rsh> ");
+            fflush(stderr);
         } else if (bytes_read == -1) {
             perror("Error reading from FIFO");
         } else {
@@ -89,7 +84,6 @@ void* messageListener(void *arg) {
     }
 
     close(user_fifo_fd);
-    close(dummy_fd);
     pthread_exit(NULL);
 }
 
@@ -120,8 +114,8 @@ int main(int argc, char **argv) {
     }
 
     while (1) {
-        printf("rsh>");
-        fflush(stdout);
+        fprintf(stderr, "rsh> ");
+        fflush(stderr);
         if (fgets(line, sizeof(line), stdin) == NULL) continue;
 
         line[strcspn(line, "\n")] = '\0';
