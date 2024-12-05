@@ -75,8 +75,6 @@ void* messageListener(void *arg) {
         if (bytes_read > 0) {
             printf("Incoming message from %s: %s\n", incoming_msg.source, incoming_msg.msg);
             fflush(stdout);
-            fprintf(stderr, "rsh> ");  // Reprint prompt after message
-            fflush(stderr);
         } else if (bytes_read == 0) {
             // Writing end is closed, reopen FIFO
             close(user_fifo_fd);
