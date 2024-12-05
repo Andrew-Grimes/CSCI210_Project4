@@ -73,7 +73,7 @@ void* messageListener(void *arg) {
     while (1) {
         ssize_t bytes_read = read(user_fifo_fd, &incoming_msg, sizeof(incoming_msg));
         if (bytes_read > 0) {
-            printf("\nIncoming message from %s: %s\n", incoming_msg.source, incoming_msg.msg);
+            printf("Incoming message from %s: %s\n", incoming_msg.source, incoming_msg.msg);
             fflush(stdout);
             fprintf(stderr, "rsh> ");  // Reprint prompt after message
             fflush(stderr);
