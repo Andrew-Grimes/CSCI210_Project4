@@ -12,7 +12,8 @@
 extern char **environ;
 char uName[20];
 
-char *allowed[N] = {"cp", "touch", "mkdir", "ls", "pwd", "cat", "grep", "chmod", "diff", "cd", "exit", "help", "sendmsg"};
+char *allowed[N] = {"cp", "touch", "mkdir", "ls", "pwd", "cat", "grep", "chmod",
+                    "diff", "cd", "exit", "help", "sendmsg"};
 
 struct message {
     char source[50];
@@ -117,18 +118,10 @@ int main(int argc, char **argv) {
 
     // TODO:
     // create the message listener thread
-    // Create the user's FIFO
-    unlink(uName);
-    if (mkfifo(uName, 0666) < 0) {
-        perror("Can't create user FIFO");
-        exit(1);
-    }
-
-    // Create the message listener thread
+    // (Removed the FIFO creation code here as instructed)
     pthread_t listener_thread;
     if (pthread_create(&listener_thread, NULL, messageListener, NULL) != 0) {
         perror("Can't create listener thread");
-        unlink(uName);
         exit(1);
     }
 
@@ -166,7 +159,6 @@ int main(int argc, char **argv) {
             // if no message is specified, you should print the following
             // printf("sendmsg: you have to enter a message\n");
 
-            // Parse target and message
             char *token = strtok(line2, " "); // skip "sendmsg"
             char *target = strtok(NULL, " ");
             char *msg = strtok(NULL, "");
